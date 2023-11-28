@@ -1,0 +1,243 @@
+<script>
+  async function setupCWVthingy() {
+    let cwv = await import(
+      "https://unpkg.com/web-vitals@3/dist/web-vitals.attribution.js?module"
+    );
+
+    const COLOR_GOOD = "#0CCE6A";
+    const COLOR_NEEDS_IMPROVEMENT = "#FFA400";
+    const COLOR_POOR = "#FF4E42";
+    const RATING_COLORS = {
+      good: COLOR_GOOD,
+      "needs-improvement": COLOR_NEEDS_IMPROVEMENT,
+      poor: COLOR_POOR,
+    };
+
+    const LOG_PREFIX = "[Web Vital]";
+
+    /**
+     * Copied from https://github.com/GoogleChrome/web-vitals-extension/blob/f0e660807766b24c977e795253a58439d16fc95e/src/browser_action/vitals.js#L240-L352
+     * with some modifications to make it work in a live expression.
+     * Copyright 2020 Google Inc. All Rights Reserved.
+     */
+    function logInteraction(metric) {
+      const formattedValue =
+        metric.name === "CLS"
+          ? metric.value.toFixed(2)
+          : `${metric.value.toFixed(0)} ms`;
+      if (metric.attribution?.loadState) {
+        metric.myLoadState = `loadState: ${metric.attribution.loadState}`;
+      } else {
+        metric.myLoadState = "";
+      }
+      console.groupCollapsed(
+        `${LOG_PREFIX} ${metric.name} %c${formattedValue} (${metric.rating}) ${metric.myLoadState}`,
+        `color: ${RATING_COLORS[metric.rating] || "inherit"}`,
+      );
+      const p = document.createElement("p");
+      p.textContent = `${LOG_PREFIX} ${metric.name} ${formattedValue} (${metric.rating}) ${metric.myLoadState}`;
+      (p.style = `color: ${RATING_COLORS[metric.rating] || "inherit"}`),
+        document.body.appendChild(p);
+
+      if (
+        metric.name == "LCP" &&
+        metric.attribution &&
+        metric.attribution.lcpEntry &&
+        metric.attribution.navigationEntry
+      ) {
+        console.log("LCP element:", metric.attribution.lcpEntry.element);
+        console.table([
+          {
+            "LCP sub-part": "Time to First Byte",
+            "Time (ms)": Math.round(metric.attribution.timeToFirstByte, 0),
+          },
+          {
+            "LCP sub-part": "Resource load delay",
+            "Time (ms)": Math.round(metric.attribution.resourceLoadDelay, 0),
+          },
+          {
+            "LCP sub-part": "Resource load time",
+            "Time (ms)": Math.round(metric.attribution.resourceLoadTime, 0),
+          },
+          {
+            "LCP sub-part": "Element render delay",
+            "Time (ms)": Math.round(metric.attribution.elementRenderDelay, 0),
+          },
+        ]);
+      } else if (
+        metric.name == "FCP" &&
+        metric.attribution &&
+        metric.attribution.fcpEntry &&
+        metric.attribution.navigationEntry
+      ) {
+        console.log("FCP loadState:", metric.attribution.loadState);
+        console.table([
+          {
+            "FCP sub-part": "Time to First Byte",
+            "Time (ms)": Math.round(metric.attribution.timeToFirstByte, 0),
+          },
+          {
+            "FCP sub-part": "FCP render delay",
+            "Time (ms)": Math.round(metric.attribution.firstByteToFCP, 0),
+          },
+        ]);
+      } else if (metric.name == "CLS" && metric.entries.length) {
+        for (const entry of metric.entries) {
+          console.log(
+            "Layout shift - score: ",
+            Math.round(entry.value * 10000) / 10000,
+          );
+          for (const source of entry.sources) {
+            console.log(source.node);
+          }
+        }
+      } else if (
+        (metric.name == "INP" || metric.name == "Interaction") &&
+        metric.attribution &&
+        metric.attribution.eventEntry
+      ) {
+        const subPartString = `${metric.name} sub-part`;
+        const eventEntry = metric.attribution.eventEntry;
+        console.log("Interaction target:", eventEntry.target);
+
+        for (let entry of metric.entries) {
+          console.log(
+            `Interaction event type: %c${entry.name}`,
+            "font-family: monospace",
+          );
+
+          // RenderTime is an estimate, because duration is rounded, and may get rounded down.
+          // In rare cases it can be less than processingEnd and that breaks performance.measure().
+          // Lets make sure its at least 4ms in those cases so you can just barely see it.
+          const adjustedPresentationTime = Math.max(
+            entry.processingEnd + 4,
+            entry.startTime + entry.duration,
+          );
+
+          console.table([
+            {
+              subPartString: "Input delay",
+              "Time (ms)": Math.round(
+                entry.processingStart - entry.startTime,
+                0,
+              ),
+            },
+            {
+              subPartString: "Processing time",
+              "Time (ms)": Math.round(
+                entry.processingEnd - entry.processingStart,
+                0,
+              ),
+            },
+            {
+              subPartString: "Presentation delay",
+              "Time (ms)": Math.round(
+                adjustedPresentationTime - entry.processingEnd,
+                0,
+              ),
+            },
+          ]);
+        }
+      } else if (metric.name == "FID") {
+        const eventEntry = metric.attribution.eventEntry;
+        console.log("Interaction target:", eventEntry.target);
+        console.log(
+          `Interaction type: %c${eventEntry.name}`,
+          "font-family: monospace",
+        );
+      } else if (
+        metric.name == "TTFB" &&
+        metric.attribution &&
+        metric.attribution.navigationEntry
+      ) {
+        console.log("TTFB navigation type:", metric.navigationType);
+        console.table([
+          {
+            "TTFB sub-part": "Waiting time",
+            "Time (ms)": Math.round(metric.attribution.waitingTime, 0),
+          },
+          {
+            "TTFB sub-part": "DNS time",
+            "Time (ms)": Math.round(metric.attribution.dnsTime, 0),
+          },
+          {
+            "TTFB sub-part": "Connection time",
+            "Time (ms)": Math.round(metric.attribution.connectionTime, 0),
+          },
+          {
+            "TTFB sub-part": "Request time",
+            "Time (ms)": Math.round(metric.attribution.requestTime, 0),
+          },
+        ]);
+      }
+
+      console.log(metric);
+      console.groupEnd();
+    }
+
+    /**
+     * Copied from https://github.com/GoogleChrome/web-vitals-extension/blob/f0e660807766b24c977e795253a58439d16fc95e/src/browser_action/on-each-interaction.js#L17-L53
+     * Copyright 2023 Google Inc. All Rights Reserved.
+     */
+    function onEachInteraction(callback) {
+      const valueToRating = (score) =>
+        score <= 200 ? "good" : score <= 500 ? "needs-improvement" : "poor";
+
+      const observer = new PerformanceObserver((list) => {
+        const interactions = {};
+
+        for (const entry of list
+          .getEntries()
+          .filter((entry) => entry.interactionId)) {
+          interactions[entry.interactionId] =
+            interactions[entry.interactionId] || [];
+          interactions[entry.interactionId].push(entry);
+        }
+
+        // Will report as a single interaction even if parts are in separate frames.
+        // Consider splitting by animation frame.
+        for (const interaction of Object.values(interactions)) {
+          const entry = interaction.reduce((prev, curr) =>
+            prev.duration >= curr.duration ? prev : curr,
+          );
+          const value = entry.duration;
+
+          const metric = {
+            name: "Interaction",
+            attribution: {
+              eventEntry: entry,
+              eventTime: entry.startTime,
+              eventType: entry.name,
+            },
+            entries: interaction,
+            rating: valueToRating(value),
+            value,
+          };
+
+          callback(metric);
+        }
+      });
+
+      observer.observe({
+        type: "event",
+        durationThreshold: 0,
+        buffered: true,
+      });
+    }
+    onEachInteraction(logInteraction);
+    cwv.onINP(logInteraction, {
+      reportAllChanges: true,
+    });
+    cwv.onLCP(logInteraction, {
+      reportAllChanges: true,
+    });
+    cwv.onCLS(logInteraction, {
+      reportAllChanges: true,
+    });
+    cwv.onFID(logInteraction, {
+      reportAllChanges: true,
+    });
+  }
+  setupCWVthingy();
+</script>
+<button>how slow am I?</button>
